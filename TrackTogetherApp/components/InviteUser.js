@@ -28,7 +28,6 @@ const InviteUser = ({ listId, listName }) => {
                 return;
             }
     
-            // Find the invitee by email
             const usersRef = collection(db, 'users');
             const q = query(usersRef, where('email', '==', inviteEmail));
             const querySnapshot = await getDocs(q);
@@ -42,15 +41,13 @@ const InviteUser = ({ listId, listName }) => {
             const inviteeDoc = querySnapshot.docs[0];
             const inviteeId = inviteeDoc.id;
             
-            // Don't allow self-invitation
             if (inviteeId === user.uid) {
                 setInvitationStatus('You cannot invite yourself.');
                 setIsLoading(false);
                 return;
             }
     
-            // Get the current list data
-            const listRef = doc(db, 'users', user.uid, 'lists', listId);
+            const listRef = doc(db,'lists', listId);
             const listSnapshot = await getDoc(listRef);
     
             if (!listSnapshot.exists()) {
@@ -61,7 +58,6 @@ const InviteUser = ({ listId, listName }) => {
             
             const listData = listSnapshot.data();
             
-            // Check if the user is already a member or has a pending invitation
             const sharedWithArray = listData.sharedWith || [];
             
             if (sharedWithArray.some(sharedUser => sharedUser.userId === inviteeId)) {
@@ -70,7 +66,6 @@ const InviteUser = ({ listId, listName }) => {
                 return;
             }
     
-            // 1. Create an invitation in the invitee's invitations subcollection
             const invitationData = {
                 listId: listId,
                 listName: listName || listData.name || 'Shared List',
@@ -83,20 +78,9 @@ const InviteUser = ({ listId, listName }) => {
             const inviteeInvitationsRef = collection(db, 'users', inviteeId, 'invitations');
             await addDoc(inviteeInvitationsRef, invitationData);
     
-            // 2. Update the list's sharedWith array to include the invitee with pending status
-            await updateDoc(listRef, {
-                sharedWith: arrayUnion({
-                    userId: inviteeId,
-                    email: inviteEmail,
-                    status: 'pending',
-                    addedAt: new Date()
-                })
-            });
-    
             setInvitationStatus('Invitation sent successfully!');
             setInviteEmail('');
             
-            // Close modal after a short delay so user can see success message
             setTimeout(() => {
                 setModalVisible(false);
             }, 1500);

@@ -46,6 +46,6 @@ const styles = StyleSheet.create({
     },
     buttonIcon: {
         paddingHorizontal: 10,
-        color: 'black',
+        color: 'white',
     }
 });

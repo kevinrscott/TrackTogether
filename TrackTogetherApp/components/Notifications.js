@@ -12,15 +12,11 @@ import { db, auth } from "../config/firebaseConfig";
 import {
   collection,
   query,
-  where,
-  getDocs,
   deleteDoc,
   doc,
-  getDoc,
-  writeBatch,
-  arrayUnion,
   onSnapshot,
   Timestamp,
+  addDoc
 } from "firebase/firestore";
 import Footer from "./Footer";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -28,9 +24,7 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 const Notifications = ({ navigation }) => {
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState(null);
 
-  // Fetch invitations when component mounts
   useEffect(() => {
     const fetchInvitations = async () => {
       try {
@@ -41,7 +35,7 @@ const Notifications = ({ navigation }) => {
         }
 
         const invitationsRef = collection(db, "users", user.uid, "invitations");
-        const q = query(invitationsRef, where("status", "==", "pending"));
+        const q = query(invitationsRef);
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const invitationsList = snapshot.docs.map((doc) => {
@@ -72,211 +66,51 @@ const Notifications = ({ navigation }) => {
 
   const handleAcceptInvitation = async (invitation) => {
     try {
-      setProcessingId(invitation.id);
       const user = auth.currentUser;
       if (!user) {
         Alert.alert("Error", "User not authenticated");
-        setProcessingId(null);
         return;
       }
 
-      const { listId, invitedBy, listName } = invitation;
+      const { listId } = invitation;
 
-      // Get the original list document (from the owner)
-      const listRef = doc(db, "users", invitedBy, "lists", listId);
-      const listDoc = await getDoc(listRef);
+      const usersRef = collection(db, "lists", listId, 'users')
 
-      if (!listDoc.exists()) {
-        Alert.alert("Error", "The shared list no longer exists");
-        // Clean up the invalid invitation
-        await deleteDoc(
-          doc(db, "users", user.uid, "invitations", invitation.id)
-        );
-        setProcessingId(null);
-        return;
-      }
+      await addDoc(usersRef, {
+        userId: user.uid,
+        username: user.email
+      })
 
-      const listData = listDoc.data();
+      const invitationRef = doc(db, "users", user.uid, "invitations", invitation.id);
 
-      // Create a new list for the user (the invitee)
-      const userListRef = doc(db, "users", user.uid, "lists", listId);
+      await deleteDoc(invitationRef);
 
-      // Check if the list already exists for the user
-      const userListDoc = await getDoc(userListRef);
-      if (userListDoc.exists()) {
-        Alert.alert("Info", "You already have this list in your collection.");
-        setProcessingId(null);
-        return;
-      }
-
-      const itemsRef = collection(
-        db,
-        "users",
-        invitedBy,
-        "lists",
-        listId,
-        "items"
-      );
-      const itemsSnapshot = await getDocs(itemsRef);
-
-      const listItems = itemsSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      const batch = writeBatch(db);
-
-      // 1. Create the new list for the invitee (user) and set up sharedWith
-      batch.set(userListRef, {
-        ...listData,
-        lastSyncedAt: new Date(),
-        sharedWith: [
-          ...(listData.sharedWith || []),
-          { userId: user.uid, status: "accepted" },
-        ],
-      });
-
-      // 2. Add the list items to the invitee's list
-      listItems.forEach((item) => {
-        const itemRef = doc(
-          db,
-          "users",
-          user.uid,
-          "lists",
-          listId,
-          "items",
-          item.id
-        );
-        batch.set(itemRef, {
-          ...item,
-          lastSyncedAt: new Date(),
-        });
-      });
-
-      // 3. Add this list to the user's sharedLists array
-      const userRef = doc(db, "users", user.uid);
-      const userDoc = await getDoc(userRef);
-      if (userDoc.exists()) {
-        batch.update(userRef, {
-          sharedLists: arrayUnion({
-            listId: listId,
-            name: listName || listData.name || "Shared List",
-            owner: invitedBy,
-            acceptedAt: new Date(),
-          }),
-        });
-      }
-
-      // 4. Update the invitation status to 'accepted'
-      const invitationRef = doc(
-        db,
-        "users",
-        user.uid,
-        "invitations",
-        invitation.id
-      );
-      batch.update(invitationRef, {
-        status: "accepted",
-        acceptedAt: new Date(),
-      });
-
-      // 5. Update the owner's list to include this user in sharedWith
-      const ownerListRef = doc(db, "users", invitedBy, "lists", listId);
-      batch.update(ownerListRef, {
-        sharedWith: arrayUnion({
-          userId: user.uid,
-          email: user.email,
-          status: "accepted",
-          acceptedAt: new Date(),
-        }),
-      });
-
-      // Commit batch
-      await batch.commit();
-
-      Alert.alert("Success", `You've joined "${listName || "Shared List"}"`, [
-        {
-          text: "View List",
-          onPress: () => navigation?.navigate?.("ListDetails", { listId }),
-        },
-        { text: "OK" },
-      ]);
-
-      // Update local state to remove the invitation
-      setInvitations(invitations.filter((inv) => inv.id !== invitation.id));
+      
     } catch (error) {
       console.error("Error accepting invitation:", error);
       Alert.alert("Error", "Failed to accept invitation. Please try again.");
-    } finally {
-      setProcessingId(null);
-    }
+    } 
   };
 
   const handleDeclineInvitation = async (invitation) => {
     try {
-      setProcessingId(invitation.id);
       const user = auth.currentUser;
       if (!user) {
         Alert.alert("Error", "User not authenticated");
-        setProcessingId(null);
         return;
       }
 
-      const batch = writeBatch(db);
+      const invitationRef = doc(db, "users", user.uid, "invitations", invitation.id);
 
-      // 1. Update the list's sharedWith array to remove this user
-      try {
-        const listRef = doc(
-          db,
-          "users",
-          invitation.invitedBy,
-          "lists",
-          invitation.listId
-        );
-        const listDoc = await getDoc(listRef);
-
-        if (listDoc.exists()) {
-          const listData = listDoc.data();
-          const updatedSharedWith = (listData.sharedWith || []).filter(
-            (sharedUser) => sharedUser.userId !== user.uid
-          );
-
-          batch.update(listRef, {
-            sharedWith: updatedSharedWith,
-          });
-        }
-      } catch (error) {
-        console.log("Error updating list (may not exist):", error);
-        // Continue with invitation deletion even if list update fails
-      }
-
-      // 2. Update the invitation status or delete it
-      const invitationRef = doc(
-        db,
-        "users",
-        user.uid,
-        "invitations",
-        invitation.id
-      );
-      batch.update(invitationRef, {
-        status: "declined",
-        declinedAt: new Date(),
-      });
-
-      await batch.commit();
-
-      // Update local state
-      setInvitations(invitations.filter((inv) => inv.id !== invitation.id));
+      await deleteDoc(invitationRef);
+      
     } catch (error) {
       console.error("Error declining invitation:", error);
       Alert.alert("Error", "Could not decline invitation");
-    } finally {
-      setProcessingId(null);
-    }
+    } 
   };
 
   const renderInvitation = ({ item }) => {
-    const isProcessing = processingId === item.id;
     const formattedDate =
       item.createdAt instanceof Date
         ? item.createdAt.toLocaleDateString()
@@ -297,14 +131,10 @@ const Notifications = ({ navigation }) => {
           <Text style={styles.dateText}>{formattedDate}</Text>
         </View>
         <View style={styles.invitationActions}>
-          {isProcessing ? (
-            <ActivityIndicator size="small" color="#07a1b5" />
-          ) : (
             <>
               <TouchableOpacity
                 style={[styles.actionButton, styles.acceptButton]}
                 onPress={() => handleAcceptInvitation(item)}
-                disabled={isProcessing}
               >
                 <Icon name="check" size={18} color="#fff" />
                 <Text style={styles.actionButtonText}>Accept</Text>
@@ -312,13 +142,11 @@ const Notifications = ({ navigation }) => {
               <TouchableOpacity
                 style={[styles.actionButton, styles.declineButton]}
                 onPress={() => handleDeclineInvitation(item)}
-                disabled={isProcessing}
               >
                 <Icon name="close" size={18} color="#fff" />
                 <Text style={styles.actionButtonText}>Decline</Text>
               </TouchableOpacity>
             </>
-          )}
         </View>
       </View>
     );

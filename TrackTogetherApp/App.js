@@ -19,7 +19,7 @@ export default function App() {
         <ListProvider>
           <NavigationContainer>
             <StatusBar barStyle="light-content" />
-            <Stack.Navigator initialRouteName="Login" screenOptions={{ cardStyle: { backgroundColor: '#1c1c1c'}}}>
+            <Stack.Navigator initialRouteName="Login" screenOptions={{ cardStyle: { backgroundColor: '#1c1c1c'}, animation: 'none'}}>
               <Stack.Screen 
                 name="Login" 
                 component={Login} 
@@ -29,7 +29,7 @@ export default function App() {
                 name="Home" 
                 component={HomeScreen} 
                 options={{ 
-                  title: 'My Movies',
+                  title: 'Lists',
                   headerStyle: { backgroundColor: '#07a1b5' },
                   headerTintColor: 'white',
                   headerLeft: null,
@@ -39,7 +39,7 @@ export default function App() {
                 name="Movies" 
                 component={MovieList} 
                 options={{ 
-                  title: 'Movies',
+                  title: 'Browse',
                   headerStyle: { backgroundColor: '#07a1b5' },
                   headerTintColor: 'white',
                   headerLeft: null,

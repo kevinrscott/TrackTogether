@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { db, auth } from '../config/firebaseConfig';
-import { collection, query, getDocs, where, addDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc } from 'firebase/firestore';
 
 const ListContext = createContext();
 
@@ -18,20 +18,27 @@ export const ListProvider = ({ children }) => {
         return;
       }
 
-      const contentRef = collection(db, 'users', user.uid, 'lists');
-      const q = query(contentRef);
+      const listSnapshot = await getDocs(collection(db, "lists"));
 
-      const querySnapshot = await getDocs(q);
-      const lists = [];
+      const userLists = [];
 
-      querySnapshot.forEach((doc) => {
-        lists.push({
-          id: doc.id,
-          ...doc.data()
-        });
-      });
+      for (const listDoc of listSnapshot.docs) {
+        const usersRef = collection(listDoc.ref, "users");
+        const usersSnapshot = await getDocs(usersRef);
+  
+        const userInList = usersSnapshot.docs.some(
+          (userDoc) => userDoc.data().userId === user.uid
+        );
+  
+        if (userInList) {
+          userLists.push({
+            id: listDoc.id,
+            ...listDoc.data(),
+          });
+        }
+      }
 
-      setContentList(lists);
+      setContentList(userLists);
       setLoading(false);
     } catch (error) {
       console.error("Error fetching lists:", error);
@@ -57,17 +64,21 @@ export const ListProvider = ({ children }) => {
         return false;
       }
 
-      const newList = {
+      const listRef = await addDoc(collection(db, "lists"), {
         name: listName.trim(),
-        userId: user.uid,
         createdAt: new Date(),
-      };
+      })
 
-      const docRef = await addDoc(collection(db, "users", user.uid, "lists"), newList);
-      
+      const usersRef = collection(listRef, "users")
+      await addDoc(usersRef, {
+        userId: user.uid,
+        username: user.email
+      });
+
       setContentList([...contentList, {
-        id: docRef.id,
-        ...newList,
+        id: listRef.id,
+        name: listName.trim(),
+        createdAt: new Date(),
       }]);
       
       return true;
@@ -78,41 +89,8 @@ export const ListProvider = ({ children }) => {
     }
   };
 
-  const addMovieToList = async (listId, movie) => {
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        Alert.alert("Error", "You must be logged in to add a movie.");
-        return false;
-      }
-
-      if (!movie || !movie.title) {
-        Alert.alert("Error", "Movie details are missing.");
-        return false;
-      }
-
-      const movieRef = collection(db, "users", user.uid, "lists", listId, "movies");
-      const newMovie = {
-        title: movie.title,
-        year: movie.year,
-        genre: movie.genre,
-        rating: movie.rating,
-        poster: movie.poster,
-        description: movie.description || '',
-      };
-
-      const docRef = await addDoc(movieRef, newMovie);
-
-      return true;
-    } catch (error) {
-      console.error("Error adding movie:", error);
-      Alert.alert("Error", "Failed to add movie to list. Please try again.");
-      return false;
-    }
-  };
-
   return (
-    <ListContext.Provider value={{ contentList, loading, createNewList, addMovieToList, refreshLists: fetchLists }}>
+    <ListContext.Provider value={{ contentList, loading, createNewList, refreshLists: fetchLists }}>
       {children}
     </ListContext.Provider>
   );
